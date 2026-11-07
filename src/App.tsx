@@ -139,6 +139,7 @@ export default function App() {
     if (config.autoTts) soundEngine.readFortune(fortune);
   };
   const lastTotalLikesRef = useRef<number | null>(null);
+  const liveSessionKeyRef = useRef('');
   const addLikes = (count: number) => {
     countFortuneLikes(count);
     const total = likesRef.current + count;
@@ -217,8 +218,7 @@ export default function App() {
     setDevotees((prev) => {
       const key = username.toLowerCase();
       const found = prev.find((d) => d.username.toLowerCase() === key);
-      if (found) return prev.map((d) => (d === found ? { ...d, ...update(d), lastActive: Date.now() } : d));
-      if (!allowNew) return prev;
+      if (found) return prev.map((d) => (d === found ? { ...d, ...update(d), lastActive: Date.now() } : d));      if (!allowNew) return prev;
       const { seat, evict } = pickSeat(prev);
       return [...prev.filter((d) => d !== evict), makeDevotee(username, seat, update())];
     });
@@ -497,8 +497,7 @@ export default function App() {
 
   const handleResetCrowd = () => {
     setDevotees([]);
-    setLeaderboardDonors([]);
-  };
+    setLeaderboardDonors([]);  };
 
   const handleRingBell = () => {
     soundEngine.playTempleBell(0.9);
@@ -543,6 +542,15 @@ export default function App() {
       eventSource.addEventListener('status', (e) => {
         try {
           const data = JSON.parse(e.data);
+          const nextSessionKey = data.username ? `${data.username}:${data.roomId || ''}` : '';
+          if (nextSessionKey && nextSessionKey !== liveSessionKeyRef.current) {
+            liveSessionKeyRef.current = nextSessionKey;
+            lastTotalLikesRef.current = null;
+            likesRef.current = 0;
+            fortuneLikesRef.current = 0;
+            setLikeProgress(0);
+            setFortuneProgress(0);
+          }
           setTikTokStatus(data);
         } catch (err) {
           console.error('SSE status parse error', err);
@@ -847,8 +855,7 @@ export default function App() {
               onSaveChannelName={(name) => sendControl('setName', name)}
               onUpdateConfig={(updates) => setConfig((prev) => ({ ...prev, ...updates }))}
               tikTokStatus={tikTokStatus}
-              onConnectTikTok={handleConnectTikTok}
-              onDisconnectTikTok={handleDisconnectTikTok}
+              onConnectTikTok={handleConnectTikTok}              onDisconnectTikTok={handleDisconnectTikTok}
             />
           </div>
         )}
