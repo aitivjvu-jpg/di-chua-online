@@ -150,7 +150,7 @@ const OFFERING_BLESSINGS = [
 // The owner's blessings that wish the family well, said after a gift thanks
 const FAMILY_BLESSINGS = OFFERING_BLESSINGS.filter((b) => /gia đình|gia đạo|cha mẹ/.test(b));
 
-class SoundEngine {
+export class SoundEngine {
   private audioCtx: AudioContext | null = null;
   private currentAudio: HTMLAudioElement | null = null;
   private speechQueue: string[] = [];
