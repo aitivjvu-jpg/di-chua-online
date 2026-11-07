@@ -218,7 +218,8 @@ export default function App() {
     setDevotees((prev) => {
       const key = username.toLowerCase();
       const found = prev.find((d) => d.username.toLowerCase() === key);
-      if (found) return prev.map((d) => (d === found ? { ...d, ...update(d), lastActive: Date.now() } : d));      if (!allowNew) return prev;
+      if (found) return prev.map((d) => (d === found ? { ...d, ...update(d), lastActive: Date.now() } : d));
+      if (!allowNew) return prev;
       const { seat, evict } = pickSeat(prev);
       return [...prev.filter((d) => d !== evict), makeDevotee(username, seat, update())];
     });
