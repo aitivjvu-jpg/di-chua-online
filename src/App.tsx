@@ -139,6 +139,7 @@ export default function App() {
     if (config.autoTts) soundEngine.readFortune(fortune);
   };
   const lastTotalLikesRef = useRef<number | null>(null);
+  const liveSessionKeyRef = useRef('');
   const addLikes = (count: number) => {
     countFortuneLikes(count);
     const total = likesRef.current + count;
@@ -543,6 +544,15 @@ export default function App() {
       eventSource.addEventListener('status', (e) => {
         try {
           const data = JSON.parse(e.data);
+          const nextSessionKey = data.username ? `${data.username}:${data.roomId || ''}` : '';
+          if (nextSessionKey && nextSessionKey !== liveSessionKeyRef.current) {
+            liveSessionKeyRef.current = nextSessionKey;
+            lastTotalLikesRef.current = null;
+            likesRef.current = 0;
+            fortuneLikesRef.current = 0;
+            setLikeProgress(0);
+            setFortuneProgress(0);
+          }
           setTikTokStatus(data);
         } catch (err) {
           console.error('SSE status parse error', err);

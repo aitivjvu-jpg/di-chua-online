@@ -7,10 +7,15 @@ import { Person, hash } from './Person';
 // steps; offerers kneel at the foot of the steps, the top donors one row behind them.
 const BURNER = { x: 50, y: 58 };
 export const MAIN = { x: 50, y: 74 }; // right at the foot of the steps
-// The top 6 of TOP THÀNH TÂM kneel on one row of cushions in front of the crowd, with their name plates.
-// (The board still lists 10; ranks 7-10 have no cushion, so the front stays tidy.)
-// Spread 13% apart so the name plates don't overlap
+// Top 12 donors kneel on two rows of six cushions in front of the crowd, with name plates.
+// The first row is lifted above TikTok's lower comment overlay; the second keeps the original position.
 export const TOP_SEATS = [
+  { x: 11, y: 71.5 },
+  { x: 24, y: 71.5 },
+  { x: 37, y: 71.5 },
+  { x: 63, y: 71.5 },
+  { x: 76, y: 71.5 },
+  { x: 89, y: 71.5 },
   { x: 11, y: 77.3 },
   { x: 24, y: 77.3 },
   { x: 37, y: 77.3 },
