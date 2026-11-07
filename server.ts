@@ -402,7 +402,8 @@ app.post('/api/background/reset', (_req, res) => {
 });
 
 // Disconnect route
-app.post('/api/tiktok/disconnect', (_req, res) => {  try {
+app.post('/api/tiktok/disconnect', (_req, res) => {
+  try {
     activeTikTokSession += 1;
     if (activeTikTokConn) {
       activeTikTokConn.disconnect();
