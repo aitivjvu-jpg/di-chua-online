@@ -132,7 +132,7 @@ export const ChanhDienStage: React.FC<ChanhDienStageProps> = ({
       offering.delete(username);
       return { offer: o.id, label: { name: o.displayName || o.username, avatar: o.avatarUrl || undefined } };
     };
-    // Top 6 kneel on the row of cushions
+    // Top 12 kneel on two rows of cushions
     const top = leaderboardDonors.slice(0, TOP_SEATS.length);
     top.forEach((d, i) => {
       const key = `top-${d.username}`;
@@ -287,7 +287,7 @@ export const ChanhDienStage: React.FC<ChanhDienStageProps> = ({
       <FlowerRain until={rainUntil} />
       <CraneFlight />
 
-      {/* 7. OFFERING AREA (burner, chủ lễ, 4 mats, top 6) and the side rows of devotees */}
+      {/* 7. OFFERING AREA (burner, chủ lễ, 4 mats, top 12) and the side rows of devotees */}
       {/* Floor (carpet, burner, lotus, mats) under the 3D people; names and chat bubbles over them */}
       <div ref={worldRef} className="absolute inset-0 z-20">
         <div className="absolute inset-0 z-[1]">
