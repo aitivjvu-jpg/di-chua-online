@@ -22,7 +22,7 @@ import type { FortuneDraw } from './components/FortuneCard';
 
 const SHARE_REMINDER_MS = 5 * 60 * 1000;
 const IDLE_BLESSING_MS = 90 * 1000; // voice quiet this long -> blessing + share ask
-const WELCOME_CHECK_MS = 2.5 * 1000; // faster greeting so people still online hear it
+const WELCOME_CHECK_MS = 1 * 1000;
 const MAX_WAITING_JOINERS = 30;
 const SEAT_AFTER_JOIN_MS = 10 * 1000;
 const DEFAULT_CHANNEL_NAME = 'Tâm Tịnh Tâm An'; // until the owner saves their own in the dashboard
@@ -437,34 +437,25 @@ export default function App() {
     };
   }, [config.autoTts]);
 
-  // Every newcomer is greeted, once per session.
-  // Try to greet immediately when the voice is free; otherwise batch every 2.5s.
-  // This reduces the chance that short-stay viewers leave before hearing the greeting.
+  // Every newcomer is greeted, once per session: names wait in a list and every few seconds up to 6 are
+  // greeted (3 names per sentence), oldest first, whenever the voice isn't backed up. During a lecture they wait.
   const newJoinersRef = useRef<string[]>([]);
   const greetedRef = useRef<Set<string>>(new Set());
-
-  const flushWelcomeJoiners = () => {
-    if (!newJoinersRef.current.length || soundEngine.isDharmaLecturePlaying() || soundEngine.queuedSpeech() >= 3) return;
-    const names = newJoinersRef.current.splice(0, 6);
-    names.forEach((n) => greetedRef.current.add(n));
-    for (let i = 0; i < names.length; i += 3) soundEngine.readWelcomeJoiners(names.slice(i, i + 3));
-  };
-
   const handleJoin = (name: string, avatarUrl = '') => {
     // Anyone still around 10s after joining kneels in the hall (commenting adidaphat seats them sooner)
     setTimeout(() => addOrUpdateDevotee(name, (d) => ({ avatarUrl: avatarUrl || d?.avatarUrl })), SEAT_AFTER_JOIN_MS);
     if (greetedRef.current.has(name) || newJoinersRef.current.includes(name)) return;
-    // Keep only the newest joiners when the room floods
+    // shortcut: in a flood only the newest MAX_WAITING_JOINERS wait; raise it if big rooms still miss people
     newJoinersRef.current = [...newJoinersRef.current, name].slice(-MAX_WAITING_JOINERS);
-    // Try to greet right away if the voice is free
-    if (config.autoTts && !soundEngine.isDharmaLecturePlaying() && soundEngine.queuedSpeech() < 2) {
-      flushWelcomeJoiners();
-    }
   };
-
   useEffect(() => {
     if (!config.autoTts) return;
-    const interval = setInterval(flushWelcomeJoiners, WELCOME_CHECK_MS);
+    const interval = setInterval(() => {
+      if (!newJoinersRef.current.length || soundEngine.isDharmaLecturePlaying() || soundEngine.queuedSpeech() >= 2) return;
+      const names = newJoinersRef.current.splice(0, 6);
+      names.forEach((n) => greetedRef.current.add(n));
+      for (let i = 0; i < names.length; i += 3) soundEngine.readWelcomeJoiners(names.slice(i, i + 3));
+    }, WELCOME_CHECK_MS);
     return () => clearInterval(interval);
   }, [config.autoTts]);
 
@@ -472,13 +463,9 @@ export default function App() {
   const uploadBackground = async (file: File) => {
     const res = await fetch('/api/background', { method: 'POST', headers: { 'Content-Type': file.type }, body: file });
     const result = await res.json().catch(() => ({ success: false }));
-    if (!result.success) throw new Error(result.error || 'Upload failed');
-    return result.url as string;
+    if (!result.success) throw new Error(result.error || 'Không tải được ảnh');
   };
-
-  const resetBackground = async () => {
-    await fetch('/api/background/reset', { method: 'POST' });
-  };
+  const resetBackground = () => fetch('/api/background/reset', { method: 'POST' }).catch(() => {});
 
   const sendControl = (action: string, text?: string) => {
     fetch('/api/control', {
@@ -488,160 +475,373 @@ export default function App() {
     }).catch(() => {});
   };
 
-  // Connect to TikTok LIVE
+  // Commands sent from the dashboard; only the live stage page (?view=stage) acts, so sound never doubles
+  const handleControl = (action: string, text?: string) => {
+    // The channel name applies on every page (dashboard field and the live stage's title and voice)
+    if (action === 'setName' && text) {
+      setConfig((prev) => ({ ...prev, channelName: text }));
+      soundEngine.setChannelName(text);
+    }
+    if (action === 'setTopBoard') setConfig((prev) => ({ ...prev, showTopBoard: text !== '0' }));
+    if (action === 'setKeyword' && text) setConfig((prev) => ({ ...prev, keyword: text }));
+    if (action === 'setBoardTitle' && text) setConfig((prev) => ({ ...prev, boardTitle: text }));
+    if (action === 'setBackground') setConfig((prev) => ({ ...prev, background: text || '' }));
+    if (!isStandaloneObs) return;
+    if (action === 'speak' && text) soundEngine.speakNow(text);
+    if (action === 'shareReminder') remindShare();
+    if (action === 'bell') handleRingBell();
+    if (action === 'setRate' && Number(text) > 0) {
+      setConfig((prev) => ({ ...prev, ttsSpeed: Math.min(1.15, Math.max(0.6, Number(text))) }));
+    }
+  };
+
+  const handleResetCrowd = () => {
+    setDevotees([]);
+    setLeaderboardDonors([]);
+  };
+
+  const handleRingBell = () => {
+    soundEngine.playTempleBell(0.9);
+    setAuraIntensity(0.7);
+  };
+
+  const handlePlayGong = () => {
+    soundEngine.playMuoGong(0.85);
+  };
+
+
+  // Latest handlers via ref so the SSE connection opens once instead of on every render
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('demo') !== '1') return;
+    (window as unknown as { __dco: unknown }).__dco = {
+      gift: (name: string, coins: number, avatar = '') =>
+        handlersRef.current.handleTriggerGift('dang_hoa_sen', 'Hoa Hồng', 'Cầu bình an', name, 1, coins, avatar),
+      comment: (name: string, text: string) => handlersRef.current.handleAddComment(name, text),
+      like: (count: number) => handlersRef.current.addLikes(count),
+    };
+    // &fill=1: a sample scene for screenshots (top 6 on the cushions, named viewers in the hall), no voice
+    if (new URLSearchParams(window.location.search).get('fill') !== '1') return;
+    const top = ['Hồng Phúc', 'Angela', 'Hậu 84', 'Yêu Mọi Người', 'Lu Lu', 'Cong Chu', 'Phúc Dương', 'Như Huỳnh'];
+    top.forEach((name, i) => addMerit(name, 120 - i * 13));
+    const hall = [
+      'Minh An', 'Thu Hà', 'Quốc Bảo', 'Lan Chi', 'Tuấn Kiệt', 'Ngọc Mai', 'Hoàng Nam', 'Bảo Ngọc', 'Gia Huy', 'Thanh Tâm',
+      'Kim Ngân', 'Đức Anh', 'Mỹ Linh', 'Văn Hùng', 'Hải Yến', 'Phương Thảo', 'Trọng Nghĩa', 'Diệu Linh', 'Khánh Vy', 'Minh Khôi',
+      'Thùy Dung', 'Quang Huy', 'Bích Ngọc', 'Tấn Phát', 'Hồng Nhung', 'Anh Thư', 'Đăng Khoa', 'Ngọc Hân', 'Trung Kiên', 'Cẩm Tú',
+    ];
+    hall.forEach((name) => addOrUpdateDevotee(name, () => ({})));
+  }, []);
+
+  const handlersRef = useRef({ handleTriggerGift, handleAddComment, handleFollow, handleControl, handleJoin, addLikes });
+  handlersRef.current = { handleTriggerGift, handleAddComment, handleFollow, handleControl, handleJoin, addLikes };
+
+  // Real-time TikTok LIVE SSE Event Listener
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource('/api/tiktok/events');
+
+      eventSource.addEventListener('status', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          setTikTokStatus(data);
+        } catch (err) {
+          console.error('SSE status parse error', err);
+        }
+      });
+
+      eventSource.addEventListener('chat', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const name = data.nickname || data.username || 'Phật tử';
+          handlersRef.current.handleAddComment(name, data.comment || '', data.avatar || '');
+        } catch (err) {
+          console.error('SSE chat parse error', err);
+        }
+      });
+
+      eventSource.addEventListener('gift', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const name = data.nickname || data.username || 'Bạn';
+          const rawGiftName = data.giftName || 'Hoa Sen';
+          const diamondCount = data.diamondCount || 1;
+          const repeatCount = data.repeatCount || 1;
+
+          // Intelligently map TikTok gift name to Buddhist Temple aesthetic
+          let giftType: GiftCategory = 'dang_hoa_sen';
+          let displayGiftName = rawGiftName;
+          let prayerMeaning = 'Cầu Gia Đạo Bình An Cát Tường';
+
+          const lowerName = rawGiftName.toLowerCase();
+          if (lowerName.includes('rose') || lowerName.includes('hồng')) {
+            giftType = 'dang_hoa_sen';
+            displayGiftName = 'Hoa Hồng Cầu An';
+            prayerMeaning = 'Cầu Bình An & Cát Tường';
+          } else if (lowerName.includes('lotus') || lowerName.includes('sen')) {
+            giftType = 'dang_hoa_sen';
+            displayGiftName = 'Hoa Sen Bách Gia';
+            prayerMeaning = 'Cầu Phúc Đức Vô Lượng';
+          } else if (lowerName.includes('candle') || lowerName.includes('nến') || lowerName.includes('hương')) {
+            giftType = 'dang_huong';
+            displayGiftName = 'Nén Hương & Đèn Dầu';
+            prayerMeaning = 'Cầu Trí Tuệ Sáng Suốt';
+          } else if (lowerName.includes('heart') || lowerName.includes('tim') || lowerName.includes('love')) {
+            giftType = 'ban_tim';
+            displayGiftName = 'Trái Tim Bồ Đề';
+            prayerMeaning = 'Phóng Sanh Cát Tường';
+          } else if (lowerName.includes('peach') || lowerName.includes('đào')) {
+            giftType = 'qua_dao';
+            displayGiftName = 'Quả Đào Trường Thọ';
+            prayerMeaning = 'Cầu Sức Khỏe Cho Cha Mẹ';
+          } else if (diamondCount >= 100) {
+            giftType = 'le_phat';
+            displayGiftName = rawGiftName;
+            prayerMeaning = 'Đại Công Đức Thập Phương';
+          } else {
+            giftType = 'dang_hoa_sen';
+            displayGiftName = rawGiftName;
+            prayerMeaning = 'Cầu Vạn Sự Như Ý';
+          }
+
+          handlersRef.current.handleTriggerGift(
+            giftType,
+            displayGiftName,
+            prayerMeaning,
+            name,
+            repeatCount,
+            diamondCount,
+            data.avatar || ''
+          );
+        } catch (err) {
+          console.error('SSE gift parse error', err);
+        }
+      });
+
+      eventSource.addEventListener('member', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const name = data.nickname || data.username;
+          if (name) handlersRef.current.handleJoin(name, data.avatar || '');
+        } catch (err) {
+          console.error('SSE member parse error', err);
+        }
+      });
+
+      eventSource.addEventListener('control', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          handlersRef.current.handleControl(data.action, data.text);
+        } catch (err) {
+          console.error('SSE control parse error', err);
+        }
+      });
+
+      eventSource.addEventListener('follow', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          const name = data.nickname || data.username;
+          if (name) handlersRef.current.handleFollow(name);
+        } catch (err) {
+          console.error('SSE follow parse error', err);
+        }
+      });
+
+      eventSource.addEventListener('roomUser', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (typeof data.viewerCount === 'number') {
+            setTikTokStatus((prev) => ({ ...prev, viewerCount: data.viewerCount }));
+          }
+        } catch (err) {
+          console.error('SSE roomUser parse error', err);
+        }
+      });
+
+      eventSource.addEventListener('like', (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (typeof data.totalLikes === 'number') {
+            setTikTokStatus((prev) => ({ ...prev, totalLikes: data.totalLikes }));
+          }
+          // Count by the room's running total when TikTok sends it: busy rooms drop some per-user like
+          // events, but every event carries the total, so nothing is missed. Otherwise use this event's count.
+          const count = Number(data.likeCount) || 1;
+          const total = Number(data.totalLikes) || 0;
+          if (total > 0) {
+            if (lastTotalLikesRef.current === null) lastTotalLikesRef.current = total - count;
+            const delta = total - lastTotalLikesRef.current;
+            if (delta > 0) {
+              lastTotalLikesRef.current = total;
+              handlersRef.current.addLikes(delta);
+            }
+          } else {
+            handlersRef.current.addLikes(count);
+          }
+        } catch (err) {
+          console.error('SSE like parse error', err);
+        }
+      });
+    } catch (err) {
+      console.error('SSE connection error:', err);
+    }
+
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, []);
+
+  // Connect to real TikTok LIVE room
   const handleConnectTikTok = async (username: string) => {
+    setTikTokStatus((prev) => ({ ...prev, isConnecting: true, error: '' }));
     try {
       const res = await fetch('/api/tiktok/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username }),
       });
-      const data = await res.json();
-      if (!data.success) {
-        setTikTokStatus((s) => ({ ...s, error: data.error || 'Connect failed', isConnecting: false }));
+      const result = await res.json();
+      if (!result.success) {
+        setTikTokStatus((prev) => ({
+          ...prev,
+          isConnecting: false,
+          error: result.error || 'Không thể kết nối phòng Live TikTok',
+        }));
       }
-    } catch (err) {
-      setTikTokStatus((s) => ({
-        ...s,
-        error: err instanceof Error ? err.message : 'Network error',
-        isConnecting: false,
-      }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setTikTokStatus((prev) => ({ ...prev, isConnecting: false, error: msg }));
     }
   };
 
+  // Disconnect from TikTok LIVE
   const handleDisconnectTikTok = async () => {
-    await fetch('/api/tiktok/disconnect', { method: 'POST' }).catch(() => {});
+    try {
+      await fetch('/api/tiktok/disconnect', { method: 'POST' });
+    } catch (err) {
+      console.error('Disconnect error:', err);
+    }
   };
 
-  // SSE connection for TikTok events + control
-  useEffect(() => {
-    if (!IS_STAGE_PAGE && config.viewMode !== 'dual') return;
-    const es = new EventSource('/api/tiktok/events');
-    es.addEventListener('status', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        setTikTokStatus(data);
-      } catch {}
-    });
-    es.addEventListener('chat', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        handleAddComment(data.nickname || data.username, data.comment, data.avatar);
-      } catch {}
-    });
-    es.addEventListener('gift', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        // Map gift to category roughly by diamond count
-        let giftType: GiftCategory = 'dang_huong';
-        if (data.diamondCount >= 100) giftType = 'dang_hoa_sen';
-        else if (data.diamondCount >= 20) giftType = 'le_phat';
-        else if (data.diamondCount >= 5) giftType = 'qua_dao';
-        handleTriggerGift(
-          giftType,
-          data.giftName || 'Hoa Sen',
-          'Cầu Bình An',
-          data.nickname || data.username,
-          data.repeatCount || 1,
-          data.diamondCount || 1,
-          data.avatar
-        );
-      } catch {}
-    });
-    es.addEventListener('like', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        addLikes(data.likeCount || 1);
-      } catch {}
-    });
-    es.addEventListener('member', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        handleJoin(data.nickname || data.username, data.avatar);
-      } catch {}
-    });
-    es.addEventListener('follow', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        handleFollow(data.nickname || data.username);
-      } catch {}
-    });
-    es.addEventListener('control', (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.action === 'setName' && data.text) {
-          setConfig((c) => ({ ...c, channelName: data.text }));
-          soundEngine.setChannelName(data.text);
-        }
-        if (data.action === 'setTopBoard') {
-          setConfig((c) => ({ ...c, showTopBoard: data.text !== '0' }));
-        }
-        if (data.action === 'setKeyword' && data.text) {
-          setConfig((c) => ({ ...c, keyword: data.text }));
-        }
-        if (data.action === 'setBoardTitle' && data.text) {
-          setConfig((c) => ({ ...c, boardTitle: data.text }));
-        }
-        if (data.action === 'setBackground') {
-          setConfig((c) => ({ ...c, background: data.text || undefined }));
-        }
-        if (data.action === 'speak' && data.text) {
-          soundEngine.speakPreferredBuddhistVoice(data.text);
-        }
-        if (data.action === 'shareReminder') {
-          remindShare();
-        }
-        if (data.action === 'bell') {
-          soundEngine.playTempleBell(1);
-        }
-        if (data.action === 'setRate' && data.text) {
-          const rate = parseFloat(data.text);
-          if (!isNaN(rate)) {
-            setConfig((c) => ({ ...c, ttsSpeed: rate }));
-            soundEngine.setSpeechRate(rate);
-          }
-        }
-      } catch {}
-    });
-    return () => es.close();
-  }, [config.viewMode]);
+  const handleToggleBgm = () => {
+    setConfig((prev) => ({ ...prev, bgmEnabled: !prev.bgmEnabled }));
+  };
 
-  // Render
+  // Standalone OBS mode: renders 100% clean full-screen stage for OBS browser source
+  if (isStandaloneObs) {
+    return (
+      <div className="w-screen h-screen bg-[#070302] flex items-center justify-center p-0 m-0 overflow-hidden">
+        {/* Stage is laid out at 430px wide; zoom it to fill the 1080x1920 capture */}
+        <div className="w-[430px] flex flex-col justify-center" style={{ zoom: stageZoom }}>
+          <ChanhDienStage
+            fortuneProgress={fortuneProgress}
+            fortuneDraws={fortuneDraws}
+            onSpotlightStart={readPendingThanks}
+            spotlightRequests={spotlightRequests}
+            likeProgress={likeProgress}
+            rainUntil={rainUntil}
+            config={config}
+            devotees={devotees}
+            offerers={offerers}
+            offerRequests={offerRequests}
+            currentGift={currentGift}
+            leaderboardDonors={leaderboardDonors}
+            auraIntensity={auraIntensity}
+            isGiftActive={isGiftActive}
+            onRingBell={handleRingBell}
+            onPlayGong={handlePlayGong}
+            onToggleBgm={handleToggleBgm}
+            isBgmPlaying={config.bgmEnabled}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#1a0f08] text-[#f5e6c8] font-temple">
-      <HeaderNav config={config} tikTokStatus={tikTokStatus} />
-      <main className="relative">
-        {(config.viewMode === 'dual' || config.viewMode === 'stage_only' || isStandaloneObs) && (
-          <div
-            className={isStandaloneObs ? 'fixed inset-0 z-50' : 'relative'}
-            style={isStandaloneObs ? { transform: `scale(${stageZoom})`, transformOrigin: 'top left' } : undefined}
-          >
-            <ChanhDienStage
-              config={config}
-              devotees={devotees}
-              offerers={offerers}
-              currentGift={currentGift}
-              isGiftActive={isGiftActive}
-              auraIntensity={auraIntensity}
-              offerRequests={offerRequests}
-              spotlightRequests={spotlightRequests}
-              leaderboardDonors={leaderboardDonors}
-              likeProgress={likeProgress}
-              rainUntil={rainUntil}
-              fortuneDraws={fortuneDraws}
-              fortuneProgress={fortuneProgress}
-              onSpotlightStart={(username) => readPendingThanks(username)}
-            />
+    <div className="min-h-screen bg-[#070302] text-stone-100 flex flex-col font-sans">
+      <HeaderNav
+        viewMode={config.viewMode}
+        onChangeViewMode={(mode) => setConfig((prev) => ({ ...prev, viewMode: mode }))}
+      />
+
+      <main className="flex-1 p-2 md:p-6 max-w-7xl mx-auto w-full flex flex-col">
+        {config.viewMode === 'dual' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 items-start">
+            {/* Left: 9:16 Vertical TikTok Live Stage */}
+            <div className="lg:col-span-5 flex justify-center">
+              <div className="w-full max-w-[430px]">
+                <ChanhDienStage
+                  fortuneProgress={fortuneProgress}
+                  fortuneDraws={fortuneDraws}
+                  onSpotlightStart={readPendingThanks}
+                  spotlightRequests={spotlightRequests}
+                  likeProgress={likeProgress}
+                  rainUntil={rainUntil}
+                  config={config}
+                  devotees={devotees}
+            offerers={offerers}
+            offerRequests={offerRequests}
+                  currentGift={currentGift}
+                  leaderboardDonors={leaderboardDonors}
+                  auraIntensity={auraIntensity}
+                  isGiftActive={isGiftActive}
+                  onRingBell={handleRingBell}
+                  onPlayGong={handlePlayGong}
+                  onToggleBgm={handleToggleBgm}
+                  isBgmPlaying={config.bgmEnabled}
+                />
+              </div>
+            </div>
+
+            {/* Right: Streamer Deck */}
+            <div className="lg:col-span-7 h-[780px]">
+              <StreamerDeck
+                config={config}
+                onToggleTopBoard={(show) => sendControl('setTopBoard', show ? '1' : '0')}
+                onSaveSetting={(action: string, value: string) => sendControl(action, value)}
+                onUploadBackground={uploadBackground}
+                onResetBackground={resetBackground}
+                onSaveChannelName={(name) => sendControl('setName', name)}
+                onUpdateConfig={(updates) => setConfig((prev) => ({ ...prev, ...updates }))}
+                tikTokStatus={tikTokStatus}
+                onConnectTikTok={handleConnectTikTok}
+                onDisconnectTikTok={handleDisconnectTikTok}
+              />
+            </div>
           </div>
-        )}
-        {(config.viewMode === 'dual' || config.viewMode === 'control_only') && !isStandaloneObs && (
-          <div className="p-4 max-w-4xl mx-auto">
+        ) : config.viewMode === 'stage_only' ? (
+          <div className="flex-1 flex items-center justify-center py-2">
+            <div className="w-full max-w-[430px]">
+              <ChanhDienStage
+                fortuneProgress={fortuneProgress}
+                fortuneDraws={fortuneDraws}
+                onSpotlightStart={readPendingThanks}
+                spotlightRequests={spotlightRequests}
+                likeProgress={likeProgress}
+                rainUntil={rainUntil}
+                config={config}
+                devotees={devotees}
+            offerers={offerers}
+            offerRequests={offerRequests}
+                currentGift={currentGift}
+                leaderboardDonors={leaderboardDonors}
+                auraIntensity={auraIntensity}
+                isGiftActive={isGiftActive}
+                onRingBell={handleRingBell}
+                onPlayGong={handlePlayGong}
+                onToggleBgm={handleToggleBgm}
+                isBgmPlaying={config.bgmEnabled}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 max-w-4xl mx-auto w-full h-[780px]">
             <StreamerDeck
               config={config}
-              comments={comments}
-              onTriggerGift={handleTriggerGift}
-              onAddComment={handleAddComment}
-              onAddDevotee={handleAddDevotee}
+              onToggleTopBoard={(show) => sendControl('setTopBoard', show ? '1' : '0')}
+              onSaveSetting={(action: string, value: string) => sendControl(action, value)}
               onUploadBackground={uploadBackground}
               onResetBackground={resetBackground}
               onSaveChannelName={(name) => sendControl('setName', name)}
