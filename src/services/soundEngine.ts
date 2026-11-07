@@ -96,7 +96,8 @@ export function formatUsernameForTts(username: string): string {
         processed.push(w.slice(0, p.length), w.slice(p.length));
         splitDone = true;
         break;
-      }    }
+      }
+    }
 
     if (!splitDone) {
       processed.push(w);
