@@ -29,6 +29,7 @@ interface TikTokStats {
 }
 
 let activeTikTokConn: InstanceType<typeof TikTokLiveConnection> | null = null;
+let activeTikTokSession = 0;
 let sseClients: express.Response[] = [];
 let liveStats: TikTokStats = {
   isConnected: false,
@@ -98,6 +99,8 @@ app.post('/api/tiktok/connect', async (req, res) => {
   }
 
   try {
+    // Invalidate the previous connection before disconnecting it.
+    const sessionId = ++activeTikTokSession;
     // If already connected to another room, disconnect first
     if (activeTikTokConn) {
       try {
@@ -126,6 +129,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     });
 
     conn.on(ControlEvent.CONNECTED, (state: { roomId?: string }) => {
+      if (sessionId !== activeTikTokSession) return;
       console.log(`[TikTok LIVE] Connected to @${cleanUser}, room ID: ${state?.roomId}`);
       liveStats = {
         isConnected: true,
@@ -141,6 +145,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     });
 
     conn.on(ControlEvent.DISCONNECTED, () => {
+      if (sessionId !== activeTikTokSession) return;
       console.log(`[TikTok LIVE] Disconnected from @${cleanUser}`);
       liveStats.isConnected = false;
       liveStats.isConnecting = false;
@@ -149,6 +154,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     });
 
     conn.on(WebcastEvent.STREAM_END, () => {
+      if (sessionId !== activeTikTokSession) return;
       console.log(`[TikTok LIVE] Stream ended for @${cleanUser}`);
       liveStats.isConnected = false;
       liveStats.isConnecting = false;
@@ -158,6 +164,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     });
 
     conn.on(WebcastEvent.CHAT, (data: any) => {
+      if (sessionId !== activeTikTokSession) return;
       const chatEvent = {
         username: data?.user?.displayId || data?.user?.uniqueId || data?.uniqueId || 'devotee',
         nickname: data?.user?.nickname || data?.nickname || data?.uniqueId || 'Phật tử',
@@ -173,6 +180,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     const streakCounts = new Map<string, number>();
 
     conn.on(WebcastEvent.GIFT, (data: any) => {
+      if (sessionId !== activeTikTokSession) return;
       const username = data?.user?.displayId || data?.user?.uniqueId || data?.uniqueId || 'devotee';
       const giftId = data?.giftId || 0;
       const streakKey = `${username}_${giftId}`;
@@ -187,8 +195,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
         username,
         nickname: data?.user?.nickname || data?.nickname || data?.uniqueId || 'Thí chủ',
         giftName: data?.gift?.name || data?.giftDetails?.giftName || data?.giftName || 'Hoa Sen',
-        giftId,
-        diamondCount: data?.gift?.diamondCount || data?.diamondCount || data?.giftDetails?.diamondCount || 1,
+        giftId,        diamondCount: data?.gift?.diamondCount || data?.diamondCount || data?.giftDetails?.diamondCount || 1,
         repeatCount: delta,
         repeatEnd: data?.repeatEnd ?? 1,
         avatar: data?.user?.avatarThumb?.urlList?.[0] || "",
@@ -198,6 +205,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     });
 
     conn.on(WebcastEvent.MEMBER, (data: any) => {
+      if (sessionId !== activeTikTokSession) return;
       const memberEvent = {
         username: data?.user?.displayId || data?.user?.uniqueId || data?.uniqueId || 'devotee',
         nickname: data?.user?.nickname || data?.nickname || data?.uniqueId || 'Phật tử',
@@ -208,6 +216,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     });
 
     conn.on(WebcastEvent.FOLLOW, (data: any) => {
+      if (sessionId !== activeTikTokSession) return;
       broadcastSSE('follow', {
         username: data?.user?.displayId || data?.user?.uniqueId || data?.uniqueId || 'devotee',
         nickname: data?.user?.nickname || data?.nickname || data?.uniqueId || 'Phật tử',
@@ -216,6 +225,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     });
 
     conn.on(WebcastEvent.ROOM_USER, (data: any) => {
+      if (sessionId !== activeTikTokSession) return;
       if (typeof data?.viewerCount === 'number') {
         liveStats.viewerCount = data.viewerCount;
         broadcastSSE('roomUser', { viewerCount: data.viewerCount });
@@ -223,6 +233,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     });
 
     conn.on(WebcastEvent.LIKE, (data: any) => {
+      if (sessionId !== activeTikTokSession) return;
       if (typeof data?.totalLikeCount === 'number') {
         liveStats.totalLikes = data.totalLikeCount;
       }
@@ -235,6 +246,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     });
 
     conn.on(ControlEvent.ERROR, (err: unknown) => {
+      if (sessionId !== activeTikTokSession) return;
       const errMsg = err instanceof Error ? err.message : String(err);
       console.warn(`[TikTok LIVE] Error for @${cleanUser}:`, errMsg);
       liveStats.error = errMsg;
@@ -247,6 +259,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
     conn
       .connect()
       .then((state: { roomId?: string }) => {
+        if (sessionId !== activeTikTokSession) return res.status(409).json({ success: false, error: 'Yêu cầu kết nối đã được thay thế bởi phiên mới' });
         return res.json({
           success: true,
           message: `Đang kết nối phòng live @${cleanUser}`,
@@ -255,6 +268,7 @@ app.post('/api/tiktok/connect', async (req, res) => {
       })
       .catch((err: unknown) => {
         const errMsg = err instanceof Error ? err.message : String(err);
+        if (sessionId !== activeTikTokSession) return res.status(409).json({ success: false, error: 'Yêu cầu kết nối đã được thay thế bởi phiên mới' });
         console.error(`[TikTok LIVE] Connect error for @${cleanUser}:`, errMsg);
         liveStats.isConnecting = false;
         liveStats.isConnected = false;
@@ -387,8 +401,8 @@ app.post('/api/background/reset', (_req, res) => {
 });
 
 // Disconnect route
-app.post('/api/tiktok/disconnect', (_req, res) => {
-  try {
+app.post('/api/tiktok/disconnect', (_req, res) => {  try {
+    activeTikTokSession += 1;
     if (activeTikTokConn) {
       activeTikTokConn.disconnect();
       activeTikTokConn = null;
