@@ -9,14 +9,15 @@ const BURNER = { x: 50, y: 58 };
 export const MAIN = { x: 50, y: 74 }; // right at the foot of the steps
 // The top 6 of TOP THÀNH TÂM kneel on one row of cushions in front of the crowd, with their name plates.
 // (The board still lists 10; ranks 7-10 have no cushion, so the front stays tidy.)
-// Spread 13% apart so the name plates don't overlap
+// Lift the cushion row above TikTok's lower comment overlay while keeping the six seats aligned.
+// The occupant feet use the same coordinates, so both cushions and seated donors move together.
 export const TOP_SEATS = [
-  { x: 11, y: 77.3 },
-  { x: 24, y: 77.3 },
-  { x: 37, y: 77.3 },
-  { x: 63, y: 77.3 },
-  { x: 76, y: 77.3 },
-  { x: 89, y: 77.3 },
+  { x: 11, y: 71.5 },
+  { x: 24, y: 71.5 },
+  { x: 37, y: 71.5 },
+  { x: 63, y: 71.5 },
+  { x: 76, y: 71.5 },
+  { x: 89, y: 71.5 },
 ];
 const widthAt = (y: number) => `${10 * (0.62 + ((y - 70) / 30) * 0.42)}%`;
 
