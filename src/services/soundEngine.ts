@@ -96,8 +96,7 @@ export function formatUsernameForTts(username: string): string {
         processed.push(w.slice(0, p.length), w.slice(p.length));
         splitDone = true;
         break;
-      }
-    }
+      }    }
 
     if (!splitDone) {
       processed.push(w);
@@ -158,6 +157,8 @@ class SoundEngine {
   private priorityQueue: string[] = []; // "Đọc ngay": read right after the current sentence, even mid-lecture
   private isSpeaking = false;
   private speechRate = 1;
+  private speechRunId = 0;
+  private speechTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Real Buddhist background music tracks
   private bgmAudio: HTMLAudioElement | null = null;
@@ -175,6 +176,8 @@ class SoundEngine {
   private onDharmaParagraphCallback?: (idx: number) => void;
   private onDharmaCompleteCallback?: () => void;
   private dharmaAudio: HTMLAudioElement | null = null;
+  private dharmaRunId = 0;
+  private dharmaTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Anti-spam combo cooldown map: "dù x1 hay x5 chỉ đọc 1 lần thôi"
   private lastGiftAckMap: Map<string, number> = new Map();
@@ -197,7 +200,7 @@ class SoundEngine {
   }
 
   public setSpeechRate(rate: number) {
-    this.speechRate = rate;
+    if (Number.isFinite(rate)) this.speechRate = Math.max(0.5, Math.min(1.5, rate));
   }
 
   public initAudioContext() {
@@ -226,8 +229,7 @@ class SoundEngine {
     volume = 0.35
   ) {
     if (typeof window === 'undefined') return;
-    this.bgmWanted = true;
-    this.currentTrack = track;
+    this.bgmWanted = true;    this.currentTrack = track;
     this.bgmUserVolume = Math.max(0, Math.min(1, volume));
 
     const trackUrls: Record<MusicTrack, string> = {
@@ -308,6 +310,8 @@ class SoundEngine {
     onComplete: () => void
   ) {
     this.stopDharmaLecture();
+    this.cancelSpeechPlayback();
+    const runId = ++this.dharmaRunId;
 
     this.isDharmaActive = true;
     // Read sentence by sentence so "Đọc ngay" can cut in at the end of the current sentence
@@ -338,8 +342,8 @@ class SoundEngine {
     this.playNextDharmaParagraph();
   }
 
-  private playNextDharmaParagraph() {
-    if (!this.isDharmaActive) return;
+  private playNextDharmaParagraph(runId = this.dharmaRunId) {
+    if (!this.isDharmaActive || runId !== this.dharmaRunId) return;
 
     // "Đọc ngay" lines go first, between two sentences
     if (this.priorityQueue.length > 0) {
@@ -348,10 +352,9 @@ class SoundEngine {
     }
 
     if (this.currentDharmaIndex >= this.dharmaParagraphs.length) {
+      const onComplete = this.onDharmaCompleteCallback;
       this.stopDharmaLecture();
-      if (this.onDharmaCompleteCallback) {
-        this.onDharmaCompleteCallback();
-      }
+      onComplete?.();
       return;
     }
 
@@ -370,11 +373,21 @@ class SoundEngine {
     // Warm the server cache for the next sentence so there is no gap
     if (i + 1 < this.dharmaParagraphs.length) fetch(urlFor(i + 1)).catch(() => {});
 
+    let completed = false;
     const next = () => {
+      if (completed || runId !== this.dharmaRunId || this.dharmaAudio !== audio) return;
+      completed = true;
+      audio.onended = null;
+      audio.onerror = null;
+      this.dharmaAudio = null;
       this.currentDharmaIndex += 1;
       // Short breath between sentences, longer between paragraphs
       const newParagraph = this.dharmaParaOfSentence[i + 1] !== para;
-      setTimeout(() => this.playNextDharmaParagraph(), newParagraph ? 700 : 250);
+      if (this.dharmaTimer) clearTimeout(this.dharmaTimer);
+      this.dharmaTimer = setTimeout(() => {
+        this.dharmaTimer = null;
+        this.playNextDharmaParagraph(runId);
+      }, newParagraph ? 700 : 250);
     };
     audio.onended = next;
     audio.onerror = next;
@@ -382,18 +395,28 @@ class SoundEngine {
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise.catch(() => {
-        this.stopDharmaLecture();
+        if (!completed && runId === this.dharmaRunId && this.dharmaAudio === audio) {
+          this.stopDharmaLecture();
+        }
       });
     }
   }
 
   public stopDharmaLecture() {
+    this.dharmaRunId += 1;
     this.isDharmaActive = false;
+    if (this.dharmaTimer) {
+      clearTimeout(this.dharmaTimer);
+      this.dharmaTimer = null;
+    }
     if (this.dharmaAudio) {
+      this.dharmaAudio.onended = null;
+      this.dharmaAudio.onerror = null;
       this.dharmaAudio.pause();
       this.dharmaAudio = null;
     }
     this.dharmaParagraphs = [];
+    this.dharmaParaOfSentence = [];
     this.currentDharmaIndex = 0;
     // Restore normal background music volume
     this.setBgmVolume(this.bgmUserVolume);
@@ -517,7 +540,6 @@ class SoundEngine {
 
       subOsc.connect(subGain);
       subGain.connect(master);
-
       subOsc.start(now);
       subOsc.stop(now + 0.15);
     } catch {
@@ -602,6 +624,21 @@ class SoundEngine {
     return this.isSpeaking || this.isDharmaActive ? 0 : Date.now() - this.lastSpokeAt;
   }
 
+  private cancelSpeechPlayback() {
+    this.speechRunId += 1;
+    if (this.speechTimer) {
+      clearTimeout(this.speechTimer);
+      this.speechTimer = null;
+    }
+    if (this.currentAudio) {
+      this.currentAudio.onended = null;
+      this.currentAudio.onerror = null;
+      this.currentAudio.pause();
+      this.currentAudio = null;
+    }
+    this.isSpeaking = false;
+  }
+
   private processQueue() {
     this.lastSpokeAt = Date.now();
     if (this.priorityQueue.length === 0 && this.speechQueue.length === 0) {
@@ -617,12 +654,23 @@ class SoundEngine {
     const nextText = (this.priorityQueue.shift() ?? this.speechQueue.shift())!;
     const audioUrl = `/api/tts?rate=${this.speechRate}&text=${encodeURIComponent(nextText)}`;
     const audio = new Audio(audioUrl);
+    const runId = ++this.speechRunId;
     audio.volume = 1.0;
     this.currentAudio = audio;
 
+    let completed = false;
     const onDone = () => {
+      if (completed || runId !== this.speechRunId || this.currentAudio !== audio) return;
+      completed = true;
+      audio.onended = null;
+      audio.onerror = null;
       this.currentAudio = null;
-      setTimeout(() => {
+      if (this.speechTimer) clearTimeout(this.speechTimer);
+      // Keep the speaking lock during the short gap so incoming events cannot start a second player.
+      this.speechTimer = setTimeout(() => {
+        this.speechTimer = null;
+        if (runId !== this.speechRunId) return;
+        this.isSpeaking = false;
         this.processQueue();
       }, 300);
     };
@@ -631,12 +679,7 @@ class SoundEngine {
     audio.onerror = onDone;
 
     const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch(() => {
-        this.isSpeaking = false;
-        this.setBgmVolume(this.bgmUserVolume);
-      });
-    }
+    if (playPromise !== undefined) playPromise.catch(onDone);
   }
 
   /**
@@ -695,11 +738,11 @@ class SoundEngine {
   public dispose() {
     this.stopBuddhistMusic();
     this.stopDharmaLecture();
+    this.cancelSpeechPlayback();
     this.speechQueue = [];
     this.priorityQueue = [];
-    this.currentAudio?.pause();
-    this.currentAudio = null;
     this.audioCtx?.close().catch(() => {});
+    this.audioCtx = null;
   }
 
   /**
