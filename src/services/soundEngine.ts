@@ -230,7 +230,8 @@ export class SoundEngine {
     volume = 0.35
   ) {
     if (typeof window === 'undefined') return;
-    this.bgmWanted = true;    this.currentTrack = track;
+    this.bgmWanted = true;
+    this.currentTrack = track;
     this.bgmUserVolume = Math.max(0, Math.min(1, volume));
 
     const trackUrls: Record<MusicTrack, string> = {
