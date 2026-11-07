@@ -857,7 +857,8 @@ export default function App() {
               onSaveChannelName={(name) => sendControl('setName', name)}
               onUpdateConfig={(updates) => setConfig((prev) => ({ ...prev, ...updates }))}
               tikTokStatus={tikTokStatus}
-              onConnectTikTok={handleConnectTikTok}              onDisconnectTikTok={handleDisconnectTikTok}
+              onConnectTikTok={handleConnectTikTok}
+              onDisconnectTikTok={handleDisconnectTikTok}
             />
           </div>
         )}
