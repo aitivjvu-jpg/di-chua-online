@@ -344,50 +344,9 @@ export const ChanhDienStage: React.FC<ChanhDienStageProps> = ({
       {/* 9. DISCREET STREAMER SOUND SHORTCUTS (Chuông, Mõ, Nhạc nền) */}
       <div className="absolute bottom-0 inset-x-0 z-150 px-3 pb-3 pt-1 flex items-center justify-between pointer-events-auto">
         {/* Real Buddhist Music status indicator */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/75 border border-amber-500/40 text-[10px] text-stone-200 backdrop-blur-md">
-          <span className={`w-2 h-2 rounded-full ${isBgmPlaying ? 'bg-amber-400 animate-pulse' : 'bg-stone-600'}`} />
-          <span className="font-medium truncate max-w-[190px]">
-            {isBgmPlaying
-              ? config.buddhistMusicTrack === 'chill'
-                ? '🍃 Nhạc chill thư giãn'
-                : config.buddhistMusicTrack === 'niem_phat'
-                ? '📿 Niệm Phật Thích Trí Thoát'
-                : config.buddhistMusicTrack === 'khuc_thien_dao'
-                ? '🎶 Khúc Thiền Đạo Trầm Bổng'
-                : '🎋 Sáo Trúc & Đàn Tranh Dịu Êm'
-              : 'Nhạc Phật giáo đang tắt'}
-          </span>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {onToggleBgm && (
-            <button
-              onClick={onToggleBgm}
-              title={isBgmPlaying ? 'Tắt Nhạc Phật Giáo' : 'Bật Nhạc Niệm Phật Always'}
-              className={`w-9 h-9 rounded-full border flex items-center justify-center text-sm shadow-lg hover:scale-110 active:scale-95 transition-all backdrop-blur-md ${
-                isBgmPlaying
-                  ? 'bg-amber-950/80 border-amber-400/70 text-amber-300'
-                  : 'bg-black/70 border-stone-700 text-stone-500'
-              }`}
-            >
-              🎵
-            </button>
-          )}
-          <button
-            onClick={onRingBell}
-            title="Thỉnh Chuông U Minh"
-            className="w-9 h-9 rounded-full bg-black/70 border border-amber-400/50 flex items-center justify-center text-amber-300 text-sm shadow-lg hover:scale-110 active:scale-95 transition-all backdrop-blur-md"
-          >
-            🔔
-          </button>
-          <button
-            onClick={onPlayGong}
-            title="Gõ Mõ Tụng Kinh"
-            className="w-9 h-9 rounded-full bg-black/70 border border-amber-600/50 flex items-center justify-center text-amber-300 text-sm shadow-lg hover:scale-110 active:scale-95 transition-all backdrop-blur-md"
-          >
-            🪵
-          </button>
-        </div>
+
+
       </div>
     </div>
   );
