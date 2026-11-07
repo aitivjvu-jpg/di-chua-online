@@ -498,7 +498,8 @@ export default function App() {
 
   const handleResetCrowd = () => {
     setDevotees([]);
-    setLeaderboardDonors([]);  };
+    setLeaderboardDonors([]);
+  };
 
   const handleRingBell = () => {
     soundEngine.playTempleBell(0.9);
